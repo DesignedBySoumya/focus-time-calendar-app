@@ -1,5 +1,5 @@
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { CalendarEvent, Calendar, ViewType, DragState } from '@/types/calendar';
 import { getMonthGrid, getWeekDays, formatDate, snapToGrid, isEventInDay } from '@/lib/dateUtils';
 import { EventCard } from './EventCard';
@@ -32,6 +32,12 @@ export const CalendarGrid = ({
     eventId: null,
   });
 
+  const [resizingEvent, setResizingEvent] = useState<{
+    eventId: string;
+    startY: number;
+    originalEnd: Date;
+  } | null>(null);
+
   const gridRef = useRef<HTMLDivElement>(null);
 
   const visibleCalendars = calendars.filter(cal => cal.visible);
@@ -39,13 +45,30 @@ export const CalendarGrid = ({
     visibleCalendars.some(cal => cal.id === event.calendarId)
   );
 
+  // Calculate event position and height for week/day views
+  const getEventStyle = (event: CalendarEvent, containerHeight = 48) => {
+    if (view === 'month') return {};
+    
+    const startHour = event.start.getHours() + event.start.getMinutes() / 60;
+    const endHour = event.end.getHours() + event.end.getMinutes() / 60;
+    const duration = endHour - startHour;
+    
+    return {
+      position: 'absolute' as const,
+      top: `${(startHour / 24) * 100}%`,
+      height: `${Math.max(duration / 24 * 100, 2)}%`,
+      left: '2px',
+      right: '2px',
+      zIndex: 10,
+    };
+  };
+
   const handleMouseDown = (e: React.MouseEvent, date: Date, hour?: number) => {
     if (view === 'month') {
-      // For month view, create all-day events
       const start = new Date(date);
-      start.setHours(9, 0, 0, 0); // Default to 9 AM
+      start.setHours(9, 0, 0, 0);
       const end = new Date(date);
-      end.setHours(10, 0, 0, 0); // Default to 10 AM
+      end.setHours(10, 0, 0, 0);
       onCreateEvent(start, end);
       return;
     }
@@ -85,9 +108,7 @@ export const CalendarGrid = ({
         ? dragState.dragEndTime 
         : dragState.dragStartTime;
       
-      // Add at least 1 hour duration
       const endTime = new Date(end.getTime() + (60 * 60 * 1000));
-      
       onCreateEvent(snapToGrid(start), snapToGrid(endTime));
     }
     
@@ -130,6 +151,44 @@ export const CalendarGrid = ({
     });
   };
 
+  const handleResizeStart = (e: React.MouseEvent, event: CalendarEvent) => {
+    e.stopPropagation();
+    setResizingEvent({
+      eventId: event.id,
+      startY: e.clientY,
+      originalEnd: event.end,
+    });
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizingEvent) return;
+      
+      const deltaY = e.clientY - resizingEvent.startY;
+      const hoursDelta = deltaY / 48; // Assuming 48px per hour
+      const newEnd = new Date(resizingEvent.originalEnd.getTime() + hoursDelta * 60 * 60 * 1000);
+      
+      const event = events.find(ev => ev.id === resizingEvent.eventId);
+      if (event && newEnd > event.start) {
+        onMoveEvent(resizingEvent.eventId, { end: snapToGrid(newEnd) });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setResizingEvent(null);
+    };
+
+    if (resizingEvent) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [resizingEvent, events, onMoveEvent]);
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
@@ -158,7 +217,7 @@ export const CalendarGrid = ({
             <div
               key={index}
               className={`
-                min-h-[120px] p-2 border-r border-b border-slate-700
+                min-h-[120px] p-2 border-r border-b border-slate-700 relative
                 ${isCurrentMonth ? 'bg-slate-900' : 'bg-slate-800'}
                 ${isToday ? 'bg-blue-900/20' : ''}
                 hover:bg-slate-800 transition-colors cursor-pointer
@@ -216,22 +275,15 @@ export const CalendarGrid = ({
 
         {/* Time slots */}
         <div className="flex-1 overflow-auto">
-          <div className="grid grid-cols-8">
-            {hours.map(hour => (
-              <div key={`hour-${hour}`} className="contents">
-                {/* Time label */}
-                <div className="p-2 text-xs text-slate-400 border-b border-slate-700 text-right">
-                  {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
-                </div>
-                
-                {/* Day slots */}
-                {weekDays.map(day => {
-                  const slotEvents = visibleEvents.filter(event => 
-                    isSameDay(event.start, day) && 
-                    event.start.getHours() === hour
-                  );
+          <div className="relative">
+            <div className="grid grid-cols-8">
+              {hours.map(hour => (
+                <div key={`hour-${hour}`} className="contents">
+                  <div className="p-2 text-xs text-slate-400 border-b border-slate-700 text-right">
+                    {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
+                  </div>
                   
-                  return (
+                  {weekDays.map(day => (
                     <div
                       key={`${day.toString()}-${hour}`}
                       className="h-12 border-b border-l border-slate-700 hover:bg-slate-800 transition-colors cursor-pointer relative"
@@ -240,21 +292,34 @@ export const CalendarGrid = ({
                       onMouseUp={handleMouseUp}
                       onDragOver={handleDragOver}
                       onDrop={(e) => handleEventDrop(e, day, hour)}
-                    >
-                      {slotEvents.map(event => (
-                        <EventCard
-                          key={event.id}
-                          event={event}
-                          onClick={() => onEventClick(event)}
-                          onDragStart={(e) => handleEventDragStart(e, event)}
-                          className="absolute inset-1 text-xs"
-                        />
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+            
+            {/* Render events as overlays */}
+            <div className="absolute inset-0 pointer-events-none grid grid-cols-8">
+              <div></div> {/* Time column spacer */}
+              {weekDays.map(day => {
+                const dayEvents = visibleEvents.filter(event => isSameDay(event.start, day));
+                return (
+                  <div key={day.toString()} className="relative pointer-events-auto">
+                    {dayEvents.map(event => (
+                      <EventCard
+                        key={event.id}
+                        event={event}
+                        onClick={() => onEventClick(event)}
+                        onDragStart={(e) => handleEventDragStart(e, event)}
+                        onResizeStart={(e) => handleResizeStart(e, event)}
+                        style={getEventStyle(event, 24 * 48)}
+                        className="text-xs"
+                      />
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -267,45 +332,46 @@ export const CalendarGrid = ({
 
     return (
       <div className="flex flex-col h-full">
-        {/* Header */}
         <div className="p-4 border-b border-slate-700">
           <h3 className="text-lg font-semibold text-white">
             {formatDate(currentDate, 'EEEE, MMMM d, yyyy')}
           </h3>
         </div>
 
-        {/* Time slots */}
-        <div className="flex-1 overflow-auto">
-          {hours.map(hour => {
-            const hourEvents = dayEvents.filter(event => event.start.getHours() === hour);
-            
-            return (
-              <div
-                key={hour}
-                className="flex border-b border-slate-700 min-h-[60px] hover:bg-slate-800 transition-colors cursor-pointer"
-                onMouseDown={(e) => handleMouseDown(e, currentDate, hour)}
-                onMouseMove={(e) => handleMouseMove(e, currentDate, hour)}
-                onMouseUp={handleMouseUp}
-                onDragOver={handleDragOver}
-                onDrop={(e) => handleEventDrop(e, currentDate, hour)}
-              >
-                <div className="w-20 p-2 text-xs text-slate-400 text-right border-r border-slate-700">
-                  {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
-                </div>
-                <div className="flex-1 p-2 relative">
-                  {hourEvents.map(event => (
-                    <EventCard
-                      key={event.id}
-                      event={event}
-                      onClick={() => onEventClick(event)}
-                      onDragStart={(e) => handleEventDragStart(e, event)}
-                      className="mb-1"
-                    />
-                  ))}
-                </div>
+        <div className="flex-1 overflow-auto relative">
+          {hours.map(hour => (
+            <div
+              key={hour}
+              className="flex border-b border-slate-700 min-h-[60px] hover:bg-slate-800 transition-colors cursor-pointer"
+              onMouseDown={(e) => handleMouseDown(e, currentDate, hour)}
+              onMouseMove={(e) => handleMouseMove(e, currentDate, hour)}
+              onMouseUp={handleMouseUp}
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleEventDrop(e, currentDate, hour)}
+            >
+              <div className="w-20 p-2 text-xs text-slate-400 text-right border-r border-slate-700">
+                {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
               </div>
-            );
-          })}
+              <div className="flex-1 relative" />
+            </div>
+          ))}
+          
+          {/* Events overlay */}
+          <div className="absolute inset-0 flex">
+            <div className="w-20" /> {/* Time column spacer */}
+            <div className="flex-1 relative">
+              {dayEvents.map(event => (
+                <EventCard
+                  key={event.id}
+                  event={event}
+                  onClick={() => onEventClick(event)}
+                  onDragStart={(e) => handleEventDragStart(e, event)}
+                  onResizeStart={(e) => handleResizeStart(e, event)}
+                  style={getEventStyle(event, 24 * 60)}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     );
