@@ -1,5 +1,4 @@
 
-import { useState } from 'react';
 import { Plus, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/types/calendar';
@@ -7,13 +6,15 @@ import { Calendar } from '@/types/calendar';
 interface SidebarProps {
   calendars: Calendar[];
   onToggleCalendar: (calendarId: string) => void;
+  onNewEvent: () => void;
 }
 
-export const Sidebar = ({ calendars, onToggleCalendar }: SidebarProps) => {
+export const Sidebar = ({ calendars, onToggleCalendar, onNewEvent }: SidebarProps) => {
   return (
     <div className="w-64 bg-slate-900 border-r border-slate-700 p-4">
       <div className="mb-6">
         <Button 
+          onClick={onNewEvent}
           className="w-full bg-blue-600 hover:bg-blue-700 text-white"
           size="sm"
         >

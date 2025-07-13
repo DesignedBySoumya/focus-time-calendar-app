@@ -1,5 +1,6 @@
 
 import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addMinutes, startOfDay, endOfDay } from 'date-fns';
+import { CalendarEvent } from '@/types/calendar';
 
 export const formatDate = (date: Date, formatStr: string) => format(date, formatStr);
 

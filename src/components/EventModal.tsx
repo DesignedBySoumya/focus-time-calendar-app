@@ -14,29 +14,53 @@ interface EventModalProps {
   onSave: (event: Omit<CalendarEvent, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onUpdate: (id: string, updates: Partial<CalendarEvent>) => void;
   onDelete: (id: string) => void;
+  startTime?: Date | null;
+  endTime?: Date | null;
 }
 
-export const EventModal = ({ isOpen, onClose, event, calendars, onSave, onUpdate, onDelete }: EventModalProps) => {
+export const EventModal = ({ 
+  isOpen, 
+  onClose, 
+  event, 
+  calendars, 
+  onSave, 
+  onUpdate, 
+  onDelete,
+  startTime,
+  endTime
+}: EventModalProps) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [calendarId, setCalendarId] = useState('');
   const [startDate, setStartDate] = useState('');
-  const [startTime, setStartTime] = useState('');
+  const [startTimeInput, setStartTimeInput] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [endTime, setEndTime] = useState('');
+  const [endTimeInput, setEndTimeInput] = useState('');
   const [isAllDay, setIsAllDay] = useState(false);
 
   useEffect(() => {
     if (event) {
+      // Editing existing event
       setTitle(event.title);
       setDescription(event.description || '');
       setCalendarId(event.calendarId);
       setStartDate(event.start.toISOString().split('T')[0]);
-      setStartTime(event.start.toTimeString().slice(0, 5));
+      setStartTimeInput(event.start.toTimeString().slice(0, 5));
       setEndDate(event.end.toISOString().split('T')[0]);
-      setEndTime(event.end.toTimeString().slice(0, 5));
+      setEndTimeInput(event.end.toTimeString().slice(0, 5));
       setIsAllDay(event.isAllDay || false);
+    } else if (startTime && endTime) {
+      // Creating new event with provided times
+      setTitle('');
+      setDescription('');
+      setCalendarId(calendars[0]?.id || '');
+      setStartDate(startTime.toISOString().split('T')[0]);
+      setStartTimeInput(startTime.toTimeString().slice(0, 5));
+      setEndDate(endTime.toISOString().split('T')[0]);
+      setEndTimeInput(endTime.toTimeString().slice(0, 5));
+      setIsAllDay(false);
     } else {
+      // Creating new event with default times
       const now = new Date();
       const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
       
@@ -44,12 +68,12 @@ export const EventModal = ({ isOpen, onClose, event, calendars, onSave, onUpdate
       setDescription('');
       setCalendarId(calendars[0]?.id || '');
       setStartDate(now.toISOString().split('T')[0]);
-      setStartTime(now.toTimeString().slice(0, 5));
+      setStartTimeInput(now.toTimeString().slice(0, 5));
       setEndDate(oneHourLater.toISOString().split('T')[0]);
-      setEndTime(oneHourLater.toTimeString().slice(0, 5));
+      setEndTimeInput(oneHourLater.toTimeString().slice(0, 5));
       setIsAllDay(false);
     }
-  }, [event, calendars]);
+  }, [event, calendars, startTime, endTime]);
 
   const handleSave = () => {
     if (!title.trim()) return;
@@ -62,10 +86,10 @@ export const EventModal = ({ isOpen, onClose, event, calendars, onSave, onUpdate
       calendarId,
       start: isAllDay 
         ? new Date(startDate + 'T00:00:00')
-        : new Date(startDate + 'T' + startTime + ':00'),
+        : new Date(startDate + 'T' + startTimeInput + ':00'),
       end: isAllDay 
         ? new Date(endDate + 'T23:59:59')
-        : new Date(endDate + 'T' + endTime + ':00'),
+        : new Date(endDate + 'T' + endTimeInput + ':00'),
       color: selectedCalendar?.color || '#3B82F6',
       isAllDay,
     };
@@ -75,14 +99,11 @@ export const EventModal = ({ isOpen, onClose, event, calendars, onSave, onUpdate
     } else {
       onSave(eventData);
     }
-    
-    onClose();
   };
 
   const handleDelete = () => {
     if (event) {
       onDelete(event.id);
-      onClose();
     }
   };
 
@@ -152,8 +173,8 @@ export const EventModal = ({ isOpen, onClose, event, calendars, onSave, onUpdate
             {!isAllDay && (
               <Input
                 type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
+                value={startTimeInput}
+                onChange={(e) => setStartTimeInput(e.target.value)}
                 className="bg-slate-700 border-slate-600 text-white"
               />
             )}
@@ -169,8 +190,8 @@ export const EventModal = ({ isOpen, onClose, event, calendars, onSave, onUpdate
             {!isAllDay && (
               <Input
                 type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
+                value={endTimeInput}
+                onChange={(e) => setEndTimeInput(e.target.value)}
                 className="bg-slate-700 border-slate-600 text-white"
               />
             )}

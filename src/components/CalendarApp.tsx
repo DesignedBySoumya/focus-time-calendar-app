@@ -26,6 +26,8 @@ export const CalendarApp = () => {
 
   const handleEventClick = (event: CalendarEvent) => {
     setSelectedEvent(event);
+    setModalStartTime(null);
+    setModalEndTime(null);
     setIsModalOpen(true);
   };
 
@@ -45,6 +47,23 @@ export const CalendarApp = () => {
 
   const handleSaveEvent = (eventData: Omit<CalendarEvent, 'id' | 'createdAt' | 'updatedAt'>) => {
     addEvent(eventData);
+    handleCloseModal();
+  };
+
+  const handleUpdateEvent = (id: string, updates: Partial<CalendarEvent>) => {
+    updateEvent(id, updates);
+    handleCloseModal();
+  };
+
+  const handleDeleteEvent = (id: string) => {
+    deleteEvent(id);
+    handleCloseModal();
+  };
+
+  const handleNewEventClick = () => {
+    const now = new Date();
+    const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+    handleCreateEvent(now, oneHourLater);
   };
 
   return (
@@ -60,6 +79,7 @@ export const CalendarApp = () => {
         <Sidebar
           calendars={calendars}
           onToggleCalendar={toggleCalendarVisibility}
+          onNewEvent={handleNewEventClick}
         />
         
         <CalendarGrid
@@ -69,6 +89,7 @@ export const CalendarApp = () => {
           calendars={calendars}
           onEventClick={handleEventClick}
           onCreateEvent={handleCreateEvent}
+          onMoveEvent={updateEvent}
         />
       </div>
 
@@ -78,8 +99,10 @@ export const CalendarApp = () => {
         event={selectedEvent}
         calendars={calendars}
         onSave={handleSaveEvent}
-        onUpdate={updateEvent}
-        onDelete={deleteEvent}
+        onUpdate={handleUpdateEvent}
+        onDelete={handleDeleteEvent}
+        startTime={modalStartTime}
+        endTime={modalEndTime}
       />
     </div>
   );

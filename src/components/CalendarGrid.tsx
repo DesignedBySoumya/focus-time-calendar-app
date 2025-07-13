@@ -12,6 +12,7 @@ interface CalendarGridProps {
   calendars: Calendar[];
   onEventClick: (event: CalendarEvent) => void;
   onCreateEvent: (start: Date, end: Date) => void;
+  onMoveEvent: (id: string, updates: Partial<CalendarEvent>) => void;
 }
 
 export const CalendarGrid = ({ 
@@ -20,7 +21,8 @@ export const CalendarGrid = ({
   events, 
   calendars, 
   onEventClick, 
-  onCreateEvent 
+  onCreateEvent,
+  onMoveEvent
 }: CalendarGridProps) => {
   const [dragState, setDragState] = useState<DragState>({
     isDragging: false,
@@ -38,7 +40,15 @@ export const CalendarGrid = ({
   );
 
   const handleMouseDown = (e: React.MouseEvent, date: Date, hour?: number) => {
-    if (view === 'month') return;
+    if (view === 'month') {
+      // For month view, create all-day events
+      const start = new Date(date);
+      start.setHours(9, 0, 0, 0); // Default to 9 AM
+      const end = new Date(date);
+      end.setHours(10, 0, 0, 0); // Default to 10 AM
+      onCreateEvent(start, end);
+      return;
+    }
     
     const startTime = hour !== undefined 
       ? new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, 0)
@@ -90,6 +100,41 @@ export const CalendarGrid = ({
     });
   };
 
+  const handleEventDragStart = (e: React.DragEvent, event: CalendarEvent) => {
+    e.dataTransfer.setData('text/plain', event.id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleEventDrop = (e: React.DragEvent, date: Date, hour?: number) => {
+    e.preventDefault();
+    const eventId = e.dataTransfer.getData('text/plain');
+    const event = events.find(ev => ev.id === eventId);
+    
+    if (!event) return;
+    
+    const duration = event.end.getTime() - event.start.getTime();
+    let newStart: Date;
+    
+    if (hour !== undefined) {
+      newStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, 0);
+    } else {
+      newStart = new Date(date);
+      newStart.setHours(event.start.getHours(), event.start.getMinutes());
+    }
+    
+    const newEnd = new Date(newStart.getTime() + duration);
+    
+    onMoveEvent(eventId, {
+      start: newStart,
+      end: newEnd
+    });
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
   const renderMonthView = () => {
     const days = getMonthGrid(currentDate);
     const today = new Date();
@@ -116,8 +161,11 @@ export const CalendarGrid = ({
                 min-h-[120px] p-2 border-r border-b border-slate-700
                 ${isCurrentMonth ? 'bg-slate-900' : 'bg-slate-800'}
                 ${isToday ? 'bg-blue-900/20' : ''}
-                hover:bg-slate-800 transition-colors
+                hover:bg-slate-800 transition-colors cursor-pointer
               `}
+              onClick={(e) => handleMouseDown(e, day)}
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleEventDrop(e, day)}
             >
               <div className={`
                 text-sm font-medium mb-2
@@ -132,6 +180,7 @@ export const CalendarGrid = ({
                     key={event.id}
                     event={event}
                     onClick={() => onEventClick(event)}
+                    onDragStart={(e) => handleEventDragStart(e, event)}
                     className="text-xs"
                   />
                 ))}
@@ -189,12 +238,15 @@ export const CalendarGrid = ({
                       onMouseDown={(e) => handleMouseDown(e, day, hour)}
                       onMouseMove={(e) => handleMouseMove(e, day, hour)}
                       onMouseUp={handleMouseUp}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleEventDrop(e, day, hour)}
                     >
                       {slotEvents.map(event => (
                         <EventCard
                           key={event.id}
                           event={event}
                           onClick={() => onEventClick(event)}
+                          onDragStart={(e) => handleEventDragStart(e, event)}
                           className="absolute inset-1 text-xs"
                         />
                       ))}
@@ -230,10 +282,12 @@ export const CalendarGrid = ({
             return (
               <div
                 key={hour}
-                className="flex border-b border-slate-700 min-h-[60px] hover:bg-slate-800 transition-colors"
+                className="flex border-b border-slate-700 min-h-[60px] hover:bg-slate-800 transition-colors cursor-pointer"
                 onMouseDown={(e) => handleMouseDown(e, currentDate, hour)}
                 onMouseMove={(e) => handleMouseMove(e, currentDate, hour)}
                 onMouseUp={handleMouseUp}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleEventDrop(e, currentDate, hour)}
               >
                 <div className="w-20 p-2 text-xs text-slate-400 text-right border-r border-slate-700">
                   {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
@@ -244,6 +298,7 @@ export const CalendarGrid = ({
                       key={event.id}
                       event={event}
                       onClick={() => onEventClick(event)}
+                      onDragStart={(e) => handleEventDragStart(e, event)}
                       className="mb-1"
                     />
                   ))}
