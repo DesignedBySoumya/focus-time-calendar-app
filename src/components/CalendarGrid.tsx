@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect } from 'react';
 import { CalendarEvent, Calendar, ViewType, DragState } from '@/types/calendar';
 import { getMonthGrid, getWeekDays, formatDate, snapToGrid, isEventInDay } from '@/lib/dateUtils';
@@ -42,6 +41,7 @@ export const CalendarGrid = ({
   const [dragOverInfo, setDragOverInfo] = useState<{
     date: Date;
     hour?: number;
+    minutes?: number;
   } | null>(null);
 
   const gridRef = useRef<HTMLDivElement>(null);
@@ -51,22 +51,30 @@ export const CalendarGrid = ({
     visibleCalendars.some(cal => cal.id === event.calendarId)
   );
 
-  // Calculate event position and height for week/day views
-  const getEventStyle = (event: CalendarEvent, containerHeight = 48) => {
+  // Calculate event position and height for week/day views with proper time alignment
+  const getEventStyle = (event: CalendarEvent, containerHeight = 1440) => {
     if (view === 'month') return {};
     
-    const startHour = event.start.getHours() + event.start.getMinutes() / 60;
-    const endHour = event.end.getHours() + event.end.getMinutes() / 60;
-    const duration = endHour - startHour;
+    const startMinutes = event.start.getHours() * 60 + event.start.getMinutes();
+    const endMinutes = event.end.getHours() * 60 + event.end.getMinutes();
+    const durationMinutes = endMinutes - startMinutes;
     
     return {
       position: 'absolute' as const,
-      top: `${(startHour / 24) * 100}%`,
-      height: `${Math.max(duration / 24 * 100, 2)}%`,
-      left: '2px',
-      right: '2px',
+      top: `${(startMinutes / 1440) * 100}%`,
+      height: `${Math.max((durationMinutes / 1440) * 100, 1)}%`,
+      left: '4px',
+      right: '4px',
       zIndex: 10,
     };
+  };
+
+  const getTimeFromPosition = (y: number, containerRect: DOMRect) => {
+    const relativeY = y - containerRect.top;
+    const totalMinutes = Math.max(0, Math.min(1440, (relativeY / containerRect.height) * 1440));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = Math.round((totalMinutes % 60) / 15) * 15; // Snap to 15-minute intervals
+    return { hours, minutes };
   };
 
   const handleMouseDown = (e: React.MouseEvent, date: Date, hour?: number) => {
@@ -150,17 +158,17 @@ export const CalendarGrid = ({
     }
   };
 
-  const handleDragOver = (e: React.DragEvent, date: Date, hour?: number) => {
+  const handleDragOver = (e: React.DragEvent, date: Date, hour?: number, minutes?: number) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     
     // Update drag over info for visual feedback
-    setDragOverInfo({ date, hour });
+    setDragOverInfo({ date, hour, minutes });
   };
 
-  const handleEventDrop = (e: React.DragEvent, date: Date, hour?: number) => {
+  const handleEventDrop = (e: React.DragEvent, date: Date, hour?: number, minutes?: number) => {
     e.preventDefault();
-    console.log('Event dropped at:', date, hour);
+    console.log('Event dropped at:', date, hour, minutes);
     
     const eventId = e.dataTransfer.getData('text/plain');
     const event = events.find(ev => ev.id === eventId);
@@ -175,7 +183,8 @@ export const CalendarGrid = ({
     
     if (hour !== undefined) {
       // Dropped on a specific hour slot
-      newStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, 0);
+      const targetMinutes = minutes || 0;
+      newStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, targetMinutes);
     } else {
       // Dropped on a day (month view or all-day)
       newStart = new Date(date);
@@ -307,7 +316,7 @@ export const CalendarGrid = ({
     return (
       <div className="flex flex-col h-full">
         {/* Header */}
-        <div className="grid grid-cols-8 border-b border-border">
+        <div className="grid grid-cols-8 border-b border-border bg-background sticky top-0 z-20">
           <div className="p-2 text-center text-sm font-medium text-muted-foreground">Time</div>
           {weekDays.map(day => (
             <div key={day.toString()} className="p-2 text-center text-sm font-medium text-muted-foreground border-l border-border">
@@ -318,62 +327,68 @@ export const CalendarGrid = ({
         </div>
 
         {/* Time slots */}
-        <div className="flex-1 overflow-auto">
-          <div className="relative">
-            <div className="grid grid-cols-8">
+        <div className="flex-1 overflow-auto relative">
+          <div className="grid grid-cols-8 min-h-[1440px]" style={{ height: '1440px' }}>
+            {/* Time column */}
+            <div className="border-r border-border bg-background/50">
               {hours.map(hour => (
-                <div key={`hour-${hour}`} className="contents">
-                  <div className="p-2 text-xs text-muted-foreground border-b border-border text-right">
-                    {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
-                  </div>
-                  
-                  {weekDays.map(day => {
-                    const isDragOver = dragOverInfo && 
-                      isSameDay(dragOverInfo.date, day) && 
-                      dragOverInfo.hour === hour;
-                      
-                    return (
-                      <div
-                        key={`${day.toString()}-${hour}`}
-                        className={`
-                          h-12 border-b border-l border-border relative transition-colors cursor-pointer
-                          ${isDragOver ? 'bg-primary/20' : 'hover:bg-muted/30'}
-                        `}
-                        onMouseDown={(e) => handleMouseDown(e, day, hour)}
-                        onMouseMove={(e) => handleMouseMove(e, day, hour)}
-                        onMouseUp={handleMouseUp}
-                        onDragOver={(e) => handleDragOver(e, day, hour)}
-                        onDrop={(e) => handleEventDrop(e, day, hour)}
-                      />
-                    );
-                  })}
+                <div key={`time-${hour}`} className="h-[60px] p-2 text-xs text-muted-foreground text-right border-b border-border/50 flex items-start">
+                  {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
                 </div>
               ))}
             </div>
             
-            {/* Render events as overlays */}
-            <div className="absolute inset-0 pointer-events-none grid grid-cols-8">
-              <div></div> {/* Time column spacer */}
-              {weekDays.map(day => {
-                const dayEvents = visibleEvents.filter(event => isSameDay(event.start, day));
-                return (
-                  <div key={day.toString()} className="relative pointer-events-auto">
-                    {dayEvents.map(event => (
-                      <EventCard
-                        key={event.id}
-                        event={event}
-                        onClick={() => onEventClick(event)}
-                        onDragStart={(e) => handleEventDragStart(e, event)}
-                        onResizeStart={(e) => handleResizeStart(e, event)}
-                        style={getEventStyle(event, 24 * 48)}
-                        className="text-xs"
-                        onDragEnd={handleDragEnd}
-                      />
+            {/* Day columns */}
+            {weekDays.map((day, dayIndex) => (
+              <div key={day.toString()} className="border-r border-border relative">
+                {hours.map(hour => {
+                  const isDragOver = dragOverInfo && 
+                    isSameDay(dragOverInfo.date, day) && 
+                    dragOverInfo.hour === hour;
+                    
+                  return (
+                    <div
+                      key={`${day.toString()}-${hour}`}
+                      className={`
+                        h-[60px] border-b border-border/50 relative transition-colors cursor-pointer
+                        ${isDragOver ? 'bg-primary/20' : 'hover:bg-muted/30'}
+                      `}
+                      onDragOver={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const y = e.clientY;
+                        const timeInfo = getTimeFromPosition(y, rect);
+                        handleDragOver(e, day, hour, timeInfo.minutes);
+                      }}
+                      onDrop={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const y = e.clientY;
+                        const timeInfo = getTimeFromPosition(y, rect);
+                        handleEventDrop(e, day, hour, timeInfo.minutes);
+                      }}
+                    />
+                  );
+                })}
+                
+                {/* Events overlay for this day */}
+                <div className="absolute inset-0 pointer-events-none">
+                  {visibleEvents
+                    .filter(event => isSameDay(event.start, day))
+                    .map(event => (
+                      <div key={event.id} className="pointer-events-auto">
+                        <EventCard
+                          event={event}
+                          onClick={() => onEventClick(event)}
+                          onDragStart={(e) => handleEventDragStart(e, event)}
+                          onResizeStart={(e) => handleResizeStart(e, event)}
+                          style={getEventStyle(event, 1440)}
+                          className="text-xs"
+                          onDragEnd={handleDragEnd}
+                        />
+                      </div>
                     ))}
-                  </div>
-                );
-              })}
-            </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -386,54 +401,69 @@ export const CalendarGrid = ({
 
     return (
       <div className="flex flex-col h-full">
-        <div className="p-4 border-b border-border">
+        <div className="p-4 border-b border-border bg-background">
           <h3 className="text-lg font-semibold text-foreground">
             {formatDate(currentDate, 'EEEE, MMMM d, yyyy')}
           </h3>
         </div>
 
         <div className="flex-1 overflow-auto relative">
-          {hours.map(hour => {
-            const isDragOver = dragOverInfo && 
-              isSameDay(dragOverInfo.date, currentDate) && 
-              dragOverInfo.hour === hour;
-              
-            return (
-              <div
-                key={hour}
-                className={`
-                  flex border-b border-border min-h-[60px] transition-colors cursor-pointer
-                  ${isDragOver ? 'bg-primary/20' : 'hover:bg-muted/30'}
-                `}
-                onMouseDown={(e) => handleMouseDown(e, currentDate, hour)}
-                onMouseMove={(e) => handleMouseMove(e, currentDate, hour)}
-                onMouseUp={handleMouseUp}
-                onDragOver={(e) => handleDragOver(e, currentDate, hour)}
-                onDrop={(e) => handleEventDrop(e, currentDate, hour)}
-              >
-                <div className="w-20 p-2 text-xs text-muted-foreground text-right border-r border-border">
+          <div className="flex min-h-[1440px]" style={{ height: '1440px' }}>
+            {/* Time column */}
+            <div className="w-20 border-r border-border bg-background/50">
+              {hours.map(hour => (
+                <div key={`time-${hour}`} className="h-[60px] p-2 text-xs text-muted-foreground text-right border-b border-border/50 flex items-start">
                   {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
                 </div>
-                <div className="flex-1 relative" />
-              </div>
-            );
-          })}
-          
-          {/* Events overlay */}
-          <div className="absolute inset-0 flex">
-            <div className="w-20" /> {/* Time column spacer */}
-            <div className="flex-1 relative">
-              {dayEvents.map(event => (
-                <EventCard
-                  key={event.id}
-                  event={event}
-                  onClick={() => onEventClick(event)}
-                  onDragStart={(e) => handleEventDragStart(e, event)}
-                  onResizeStart={(e) => handleResizeStart(e, event)}
-                  style={getEventStyle(event, 24 * 60)}
-                  onDragEnd={handleDragEnd}
-                />
               ))}
+            </div>
+            
+            {/* Main content area */}
+            <div className="flex-1 relative">
+              {/* Hour slots */}
+              {hours.map(hour => {
+                const isDragOver = dragOverInfo && 
+                  isSameDay(dragOverInfo.date, currentDate) && 
+                  dragOverInfo.hour === hour;
+                  
+                return (
+                  <div
+                    key={hour}
+                    className={`
+                      h-[60px] border-b border-border/50 relative transition-colors cursor-pointer
+                      ${isDragOver ? 'bg-primary/20' : 'hover:bg-muted/30'}
+                    `}
+                    onDragOver={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const y = e.clientY;
+                      const timeInfo = getTimeFromPosition(y, rect);
+                      handleDragOver(e, currentDate, hour, timeInfo.minutes);
+                    }}
+                    onDrop={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const y = e.clientY;
+                      const timeInfo = getTimeFromPosition(y, rect);
+                      handleEventDrop(e, currentDate, hour, timeInfo.minutes);
+                    }}
+                  />
+                );
+              })}
+              
+              {/* Events overlay */}
+              <div className="absolute inset-0 pointer-events-none">
+                {dayEvents.map(event => (
+                  <div key={event.id} className="pointer-events-auto">
+                    <EventCard
+                      event={event}
+                      onClick={() => onEventClick(event)}
+                      onDragStart={(e) => handleEventDragStart(e, event)}
+                      onResizeStart={(e) => handleResizeStart(e, event)}
+                      style={getEventStyle(event, 1440)}
+                      onDragEnd={handleDragEnd}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -445,11 +475,6 @@ export const CalendarGrid = ({
     <div 
       ref={gridRef}
       className="flex-1 bg-background overflow-hidden"
-      onMouseLeave={() => {
-        if (dragState.isDragging) {
-          handleMouseUp();
-        }
-      }}
     >
       {view === 'month' && renderMonthView()}
       {view === 'week' && renderWeekView()}
